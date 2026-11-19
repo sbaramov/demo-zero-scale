@@ -121,12 +121,14 @@ helm repo update
 helm upgrade --install keda kedacore/keda \
   --namespace keda \
   --set image.pullPolicy=IfNotPresent \
-  --wait
+  --wait \
+  --timeout 10m
 
 helm upgrade --install http-add-on kedacore/keda-add-ons-http \
   --namespace keda \
   --set images.pullPolicy=IfNotPresent \
-  --wait
+  --wait \
+  --timeout 10m
 ```
 
 *(All of the steps above—plus building, importing, and deploying the app—are automated in `scripts/setup-cluster.sh`.)*
