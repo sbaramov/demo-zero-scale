@@ -1,0 +1,19 @@
+apiVersion: http.keda.sh/v1beta1
+kind: InterceptorRoute
+metadata:
+  name: task-org-webapp
+  namespace: task-org
+spec:
+  target:
+    service: task-org-webapp
+    port: 8080
+  rules:
+    - hosts:
+        - task-org.local
+      paths:
+        - value: /
+  scalingMetric:
+    requestRate:
+      targetValue: 5
+      window: 1m
+      granularity: 1s

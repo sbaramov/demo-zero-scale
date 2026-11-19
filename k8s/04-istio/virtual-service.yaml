@@ -1,0 +1,18 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: task-org-vs
+  namespace: task-org
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - task-org-gateway
+  http:
+    - rewrite:
+        authority: task-org.local
+      route:
+        - destination:
+            host: keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local
+            port:
+              number: 8080
