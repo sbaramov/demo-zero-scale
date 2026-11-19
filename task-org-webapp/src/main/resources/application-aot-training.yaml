@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/taskorg
+    username: training
+    password: training
+    hikari:
+      initialization-fail-timeout: -1
+  sql:
+    init:
+      mode: never
+
+management:
+  health:
+    db:
+      enabled: false
