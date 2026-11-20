@@ -2,9 +2,9 @@
 
 ## 1. Overview & Motivation
 
-Running always-on Kubernetes workloads for bursty, internal, or low-traffic services wastes compute capacity—especially for JVM services whose idle pods still reserve hundreds of megabytes of memory. A **zero-scale architecture** solves this by scaling an application's `Deployment` all the way down to `0` replicas when idle and spinning it back up on demand when traffic arrives.
+Running always-on Kubernetes workloads for bursty, internal, or low-traffic services wastes compute capacity—especially for Java Virtual Machine (JVM) services whose idle pods still reserve hundreds of megabytes of memory. A **zero-scale architecture** solves this by scaling an application's `Deployment` all the way down to `0` replicas when idle and spinning it back up on demand when traffic arrives.
 
-Scaling down to zero is straightforward for **queue- or event-driven** workers: a message sits safely in Kafka, RabbitMQ, or SQS while KEDA scales a consumer from `0` to `1`. **HTTP workloads are harder**:
+Scaling down to zero is straightforward for **queue- or event-driven** workers: a message sits safely in Kafka, RabbitMQ, or Amazon Simple Queue Service (SQS) while Kubernetes Event-driven Autoscaling (KEDA) scales a consumer from `0` to `1`. **Hypertext Transfer Protocol (HTTP) workloads are harder**:
 
 - Standard Kubernetes Horizontal Pod Autoscaler (HPA) cannot hold an incoming HTTP connection while a pod starts. If a `Deployment` has `0` replicas, an incoming request hits a `Service` with no endpoints and fails immediately with `503 Service Unavailable`.
 - To make HTTP scale-to-zero transparent to callers, a lightweight component must stay in the request path, **intercept and buffer** the incoming HTTP request when the backend is at `0`, signal the autoscaler to wake the workload, wait for the pod's readiness probe to pass, and then forward the held request.
@@ -13,20 +13,20 @@ In this article, we build and run a complete local zero-scale stack on **`k3d`**
 
 - **Istio Service Mesh** (`Gateway` + `VirtualService`) for ingress and mesh traffic management
 - **KEDA Core + the KEDA HTTP Add-on** (`InterceptorRoute` + `ScaledObject`) for HTTP request interception and scale-to-zero
-- **Java 25 + Spring Boot 4.1 with Project Leyden AOT Cache** to cut JVM cold-start latency
+- **Java 25 + Spring Boot 4.1 with Project Leyden Ahead-of-Time (AOT) Cache** to cut JVM cold-start latency
 - **PostgreSQL deployed as a `StatefulSet`** backing a real task-organizer web application (`task-org-webapp`)
 
 ---
 
 ## 2. Why Project Leyden AOT Cache Instead of GraalVM Native Image?
 
-Whenever a service wakes from `0` replicas on an incoming HTTP request, **application startup time becomes user-visible latency**. If a caller or webhook provider enforces a tight timeout (for example, expecting `200 OK` within a few seconds), a slow traditional JIT-compiled JVM cold start can turn a scale-from-zero event into a timeout.
+Whenever a service wakes from `0` replicas on an incoming HTTP request, **application startup time becomes user-visible latency**. If a caller or webhook provider enforces a tight timeout (for example, expecting `200 OK` within a few seconds), a slow traditional Just-In-Time (JIT)-compiled JVM cold start can turn a scale-from-zero event into a timeout.
 
-**GraalVM Native Image** is frequently presented as the default answer for Java cold starts—and it does boot in tens of milliseconds. However, in many enterprise environments, moving to a GraalVM native binary introduces a major operational trade-off: **APM and observability tooling**.
+**GraalVM Native Image** is frequently presented as the default answer for Java cold starts—and it does boot in tens of milliseconds. However, in many enterprise environments, moving to a GraalVM native binary introduces a major operational trade-off: **Application Performance Monitoring (APM) and observability tooling**.
 
-Tools such as **Dynatrace OneAgent** (and similar bytecode-instrumenting Java agents) rely on standard JVM TI / `-javaagent` bytecode instrumentation on the HotSpot JVM. Because GraalVM Native Image compiles Java ahead-of-time into a closed-world native binary without a standard HotSpot runtime, traditional Java agents cannot instrument it the same way—forcing teams to give up deep automatic tracing, profiling, or established operational workflows.
+Tools such as **Dynatrace OneAgent** (and similar bytecode-instrumenting Java agents) rely on standard JVM Tool Interface (JVMTI) / `-javaagent` bytecode instrumentation on the HotSpot JVM. Because GraalVM Native Image compiles Java ahead-of-time into a closed-world native binary without a standard HotSpot runtime, traditional Java agents cannot instrument it the same way—forcing teams to give up deep automatic tracing, profiling, or established operational workflows.
 
-**Project Leyden AOT Cache** (standardized across Java 24 and Java 25 via JEP 483, JEP 514, and JEP 515) offers a pragmatic middle ground:
+**Project Leyden AOT Cache** (standardized across Java 24 and Java 25 via Java Development Kit (JDK) Enhancement Proposals—JEP 483, JEP 514, and JEP 515) offers a pragmatic middle ground:
 
 | Approach | Cold-Start Speed | Standard HotSpot JVM & `-javaagent` (e.g., Dynatrace) | Build Complexity |
 | :--- | :--- | :--- | :--- |
@@ -40,7 +40,7 @@ Because Project Leyden runs on the **standard HotSpot JVM**, you keep full compa
 
 ## 3. Architecture Overview
 
-The demo application, `task-org-webapp`, lets users organize tasks into projects. PostgreSQL runs as a `StatefulSet` at `1` replica (we deliberately keep the database running so database cold starts do not distort application scaling). Only `task-org-webapp` scales between `0` and `5` replicas.
+The demo application, `task-org-webapp`, lets users organize tasks into projects. PostgreSQL runs as a `StatefulSet` at `1` replica backed by a PersistentVolumeClaim (PVC)—we deliberately keep the database running so database cold starts do not distort application scaling. Only `task-org-webapp` scales between `0` and `5` replicas.
 
 ```mermaid
 flowchart LR
@@ -61,7 +61,7 @@ flowchart LR
 
 ### How the KEDA HTTP Add-on Fits In
 
-The **KEDA HTTP Add-on** (`kedacore/http-add-on`) is an official companion chart installed alongside KEDA Core. Starting with v0.14+ (we use v0.16.0 here), the older `HTTPScaledObject` CRD is replaced by two cleaner resources:
+The **KEDA HTTP Add-on** (`kedacore/http-add-on`) is an official companion chart installed alongside KEDA Core. Starting with v0.14+ (we use v0.16.0 here), the older `HTTPScaledObject` Custom Resource Definition (CRD) is replaced by two cleaner resources:
 
 1. **`InterceptorRoute` (`http.keda.sh/v1beta1`):** Tells the KEDA HTTP Interceptor which incoming host/path to match, which backend Kubernetes `Service` to forward to, and what request-rate metric to report.
 2. **`ScaledObject` (`keda.sh/v1alpha1`):** A standard KEDA `ScaledObject` targeting the `task-org-webapp` `Deployment` with `minReplicaCount: 0`, wired to the HTTP Add-on's external scaler via an `external-push` trigger.
@@ -72,11 +72,11 @@ When `task-org-webapp` is at `0` replicas, Istio routes the request to `keda-add
 
 ## 4. Prerequisites & Local `k3d` Cluster Setup
 
-We use two tools for local setup: [Homebrew](https://brew.sh/) and [mise-en-place](https://mise.jdx.dev/). Both work well on Linux, macOS, and Windows (WSL). You also need Docker running locally.
+We use two tools for local setup: [Homebrew](https://brew.sh/) and [mise-en-place](https://mise.jdx.dev/). Both work well on Linux, macOS, and Windows Subsystem for Linux (WSL). You also need Docker running locally.
 
-### Install CLI Tools
+### Install Command-Line Interface (CLI) Tools
 
-Install `kubectl`, `k3d`, `helm`, and `istioctl` (on Linux, Homebrew typically ships newer versions than OS package managers):
+Install `kubectl`, `k3d`, `helm`, and `istioctl` (on Linux, Homebrew typically ships newer versions than operating system (OS) package managers):
 
 ```bash
 brew install kubectl k3d helm istioctl
@@ -111,7 +111,7 @@ Install Istio using the `default` profile (which includes `istiod` and `istio-in
 istioctl install --set profile=default -y
 ```
 
-Create the `keda` namespace and **explicitly disable Istio sidecar injection** on it (`istio-injection=disabled`) so Istio mTLS does not interfere with KEDA's internal API service and admission webhooks:
+Create the `keda` namespace and **explicitly disable Istio sidecar injection** on it (`istio-injection=disabled`) so Istio mutual Transport Layer Security (mTLS) does not interfere with KEDA's internal Application Programming Interface (API) service and admission webhooks:
 
 ```bash
 kubectl create namespace keda
@@ -141,14 +141,14 @@ helm upgrade --install http-add-on kedacore/keda-add-ons-http \
 
 The `task-org-webapp/` directory contains a **Spring Boot 4.1.2 / Java 25** application using:
 
-- **Spring WebMVC** for the JSON REST API (`/api/projects`, `/api/projects/{projectId}/tasks`, `/api/tasks/{id}`)
-- **Spring Data JDBC** with PostgreSQL (`schema.sql` + idempotent `data.sql` seed data)
+- **Spring WebMVC** for the JavaScript Object Notation (JSON) Representational State Transfer (REST) API (`/api/projects`, `/api/projects/{projectId}/tasks`, `/api/tasks/{id}`)
+- **Spring Data Java Database Connectivity (JDBC)** with PostgreSQL (`schema.sql` + idempotent `data.sql` seed data)
 - **Spring Boot Actuator** exposing `/actuator/health/readiness` and `/actuator/health/liveness`
-- **Bootstrap 5 (CDN) + vanilla JS** (`src/main/resources/static/index.html` and `app.js`) so the UI requires zero Node.js build tooling and adds no classpath overhead
+- **Bootstrap 5 via Content Delivery Network (CDN) + vanilla JavaScript (JS)** (`src/main/resources/static/index.html` and `app.js`) so the User Interface (UI) requires zero Node.js build tooling and adds no classpath overhead
 
 ### Making Leyden AOT Training Work Without a Live Database
 
-During `docker build`, PostgreSQL is not running. Normally, Spring Data JDBC opens a JDBC connection at startup to auto-detect the SQL dialect. To allow a clean, database-free AOT training pass—and also shave a database round-trip off every production cold start—we configure `JdbcPostgresDialect.INSTANCE` explicitly in `task-org-webapp/src/main/java/taskorg/JdbcConfig.java`:
+During `docker build`, PostgreSQL is not running. Normally, Spring Data JDBC opens a JDBC connection at startup to auto-detect the Structured Query Language (SQL) dialect. To allow a clean, database-free AOT training pass—and also shave a database round-trip off every production cold start—we configure `JdbcPostgresDialect.INSTANCE` explicitly in `task-org-webapp/src/main/java/taskorg/JdbcConfig.java`:
 
 ```java
 @Configuration
@@ -165,7 +165,7 @@ Paired with `task-org-webapp/src/main/resources/application-aot-training.yaml` (
 
 ### Multi-Stage `Dockerfile` with Project Leyden AOT Cache
 
-In `task-org-webapp/Dockerfile`, Stage 1 builds and extracts the Spring Boot JAR (`-Djarmode=tools ... extract`), and Stage 2 runs the Java 25 Project Leyden training pass to create `/app/app.aot`:
+In `task-org-webapp/Dockerfile`, Stage 1 builds and extracts the Spring Boot Java Archive (JAR) (`-Djarmode=tools ... extract`), and Stage 2 runs the Java 25 Project Leyden training pass to create `/app/app.aot`:
 
 ```dockerfile
 FROM eclipse-temurin:25-jdk AS builder
@@ -322,7 +322,7 @@ The script toggles `JAVA_TOOL_OPTIONS` between unset (baseline JVM) and `-XX:AOT
 | :--- | :---: | :---: | :---: |
 | **Spring Boot startup** (`Started TaskOrgWebappApplication`) | `2.100 s` *(process: `2.290 s`)* | **`0.942 s`** *(process: `1.077 s`)* | **~55% faster (2.2x)** |
 | **Isolated container startup** (`docker run`, `onRefresh` exit) | `3.12 s` *(context: `1121 ms`)* | **`1.84 s`** *(context: `520 ms`)* | **~41% faster** |
-| **End-to-end cold-start HTTP TTFB** (0 -> 1 via Istio + KEDA) | `7.64 s` *(HTTP 200)* | **`7.27 s`** *(HTTP 200)* | **~0.37 s faster** |
+| **End-to-end cold-start HTTP Time to First Byte (TTFB)** (0 -> 1 via Istio + KEDA) | `7.64 s` *(HTTP 200)* | **`7.27 s`** *(HTTP 200)* | **~0.37 s faster** |
 | **Cold-start HTTP errors (`502`/`503`)** | `0` | **`0`** | Transparent wake-up |
 
 ### What the Numbers Actually Tell Us
