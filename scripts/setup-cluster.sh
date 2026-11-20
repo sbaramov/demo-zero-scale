@@ -10,7 +10,9 @@ if k3d cluster list -o json | grep -q "\"name\":\"${CLUSTER_NAME}\""; then
 else
   k3d cluster create "${CLUSTER_NAME}" \
     -p "8080:80@loadbalancer" \
-    --k3s-arg "--disable=traefik@server:0"
+    --k3s-arg "--disable=traefik@server:0" \
+    --k3s-arg "--kubelet-arg=image-gc-high-threshold=96@server:0" \
+    --k3s-arg "--kubelet-arg=image-gc-low-threshold=92@server:0"
 fi
 kubectl config use-context "k3d-${CLUSTER_NAME}"
 

@@ -93,12 +93,14 @@ mise use java@temurin-25
 
 ### Create the `k3d` Cluster
 
-`k3d` ships with Traefik enabled on port `80` by default. Disable Traefik so Istio's Ingress Gateway owns port `80` cleanly, and expose it on `localhost:8080`:
+`k3d` ships with Traefik enabled on port `80` by default. Disable Traefik so Istio's Ingress Gateway owns port `80` cleanly, expose it on `localhost:8080`, and raise kubelet's image garbage-collection thresholds so locally imported images aren't evicted while the app is scaled to `0` on a busy disk:
 
 ```bash
 k3d cluster create zero-scale \
   -p "8080:80@loadbalancer" \
-  --k3s-arg "--disable=traefik@server:0"
+  --k3s-arg "--disable=traefik@server:0" \
+  --k3s-arg "--kubelet-arg=image-gc-high-threshold=96@server:0" \
+  --k3s-arg "--kubelet-arg=image-gc-low-threshold=92@server:0"
 ```
 
 ### Install Istio, KEDA Core, and the KEDA HTTP Add-on
