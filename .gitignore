@@ -1,0 +1,17 @@
+# IDEs and editors
+.idea/
+*.iml
+.vscode/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local planning / agent scratch directories
+docs/superpowers/
+.superpowers/
+
+# Build outputs
+target/
