@@ -44,7 +44,7 @@ brew install kubectl k3d helm istioctl
 ./scripts/setup-cluster.sh
 
 # 2. Open the Task Organizer UI in your browser
-#    http://localhost:8080
+#    http://localhost:8008
 
 # 3. Benchmark cold-start latency (Baseline JVM vs. Project Leyden AOT Cache)
 ./scripts/benchmark-cold-start.sh

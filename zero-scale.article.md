@@ -44,7 +44,7 @@ The demo application, `task-org-webapp`, lets users organize tasks into projects
 
 ```mermaid
 flowchart LR
-    Client["Browser / curl (localhost:8080)"]
+    Client["Browser / curl (localhost:8008)"]
     LB["k3d LoadBalancer"]
     GW["Istio Ingress Gateway (istio-system)"]
     VS["Istio VirtualService (task-org)"]
@@ -93,11 +93,11 @@ mise use java@temurin-25
 
 ### Create the `k3d` Cluster
 
-`k3d` ships with Traefik enabled on port `80` by default. Disable Traefik so Istio's Ingress Gateway owns port `80` cleanly, expose it on `localhost:8080`, and raise kubelet's image garbage-collection thresholds so locally imported images aren't evicted while the app is scaled to `0` on a busy disk:
+`k3d` ships with Traefik enabled on port `80` by default. Disable Traefik so Istio's Ingress Gateway owns port `80` cleanly, expose it on `localhost:8008` (avoiding conflict with local Spring Boot development on `8080`), and raise kubelet's image garbage-collection thresholds so locally imported images aren't evicted while the app is scaled to `0` on a busy disk:
 
 ```bash
 k3d cluster create zero-scale \
-  -p "8080:80@loadbalancer" \
+  -p "8008:80@loadbalancer" \
   --k3s-arg "--disable=traefik@server:0" \
   --k3s-arg "--kubelet-arg=image-gc-high-threshold=96@server:0" \
   --k3s-arg "--kubelet-arg=image-gc-low-threshold=92@server:0"
@@ -274,7 +274,7 @@ spec:
         interceptorRoute: task-org-webapp
 ```
 
-5. **Istio `Gateway` + `VirtualService` (`k8s/04-istio/`):** The `VirtualService` rewrites the authority (`Host`) header to `task-org.local` and routes all traffic to the KEDA HTTP Interceptor proxy, so `http://localhost:8080` works directly in a browser or `curl` without editing `/etc/hosts`:
+5. **Istio `Gateway` + `VirtualService` (`k8s/04-istio/`):** The `VirtualService` rewrites the authority (`Host`) header to `task-org.local` and routes all traffic to the KEDA HTTP Interceptor proxy, so `http://localhost:8008` works directly in a browser or `curl` without editing `/etc/hosts`:
 
 ```yaml
 # k8s/04-istio/virtual-service.yaml
@@ -308,13 +308,13 @@ Wait ~30 seconds with no traffic and watch `task-org-webapp` scale down to `0` w
 kubectl get pods -n task-org -w
 ```
 
-Now open [http://localhost:8080](http://localhost:8080) in your browser, or run our reproducible benchmark script:
+Now open [http://localhost:8008](http://localhost:8008) in your browser, or run our reproducible benchmark script:
 
 ```bash
 ./scripts/benchmark-cold-start.sh
 ```
 
-The script toggles `JAVA_TOOL_OPTIONS` between unset (baseline JVM) and `-XX:AOTCache=app.aot` (Project Leyden), waits for `task-org-webapp` to scale to `0`, sends a cold-start `GET http://localhost:8080/api/projects`, and records both the end-to-end HTTP latency and Spring Boot's startup log line.
+The script toggles `JAVA_TOOL_OPTIONS` between unset (baseline JVM) and `-XX:AOTCache=app.aot` (Project Leyden), waits for `task-org-webapp` to scale to `0`, sends a cold-start `GET http://localhost:8008/api/projects`, and records both the end-to-end HTTP latency and Spring Boot's startup log line.
 
 ### Measured Results (Local `k3d` Cluster, Java 25.0.2, Spring Boot 4.1.2)
 

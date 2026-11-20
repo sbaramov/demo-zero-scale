@@ -22,4 +22,4 @@ kubectl rollout status deployment/task-org-webapp -n task-org --timeout=180s
 kubectl apply -f "${ROOT_DIR}/k8s/03-keda/"
 kubectl apply -f "${ROOT_DIR}/k8s/04-istio/"
 
-echo "==> Deployment complete! Visit http://localhost:8080"
+echo "==> Deployment complete! Visit http://localhost:8008"

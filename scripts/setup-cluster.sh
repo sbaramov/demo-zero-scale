@@ -9,7 +9,7 @@ if k3d cluster list -o json | grep -q "\"name\":\"${CLUSTER_NAME}\""; then
   echo "Cluster '${CLUSTER_NAME}' already exists; reusing it."
 else
   k3d cluster create "${CLUSTER_NAME}" \
-    -p "8080:80@loadbalancer" \
+    -p "8008:80@loadbalancer" \
     --k3s-arg "--disable=traefik@server:0" \
     --k3s-arg "--kubelet-arg=image-gc-high-threshold=96@server:0" \
     --k3s-arg "--kubelet-arg=image-gc-low-threshold=92@server:0"
@@ -43,4 +43,4 @@ helm upgrade --install http-add-on kedacore/keda-add-ons-http \
 echo "==> 4. Building and deploying task-org-webapp and manifests..."
 CLUSTER_NAME="${CLUSTER_NAME}" "${ROOT_DIR}/scripts/deploy.sh"
 
-echo "==> Setup complete! Visit http://localhost:8080 or run ./scripts/benchmark-cold-start.sh"
+echo "==> Setup complete! Visit http://localhost:8008 or run ./scripts/benchmark-cold-start.sh"

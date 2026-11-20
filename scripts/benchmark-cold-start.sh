@@ -3,7 +3,7 @@ set -euo pipefail
 
 NAMESPACE="task-org"
 DEPLOYMENT="task-org-webapp"
-URL="${URL:-http://localhost:8080/api/projects}"
+URL="${URL:-http://localhost:8008/api/projects}"
 
 wait_for_zero() {
   echo "Waiting for ${DEPLOYMENT} to scale to 0 replicas..."
