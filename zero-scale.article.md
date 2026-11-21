@@ -4,7 +4,9 @@
 
 Running always-on Kubernetes workloads for bursty, internal, or low-traffic services wastes compute capacity—especially for Java Virtual Machine (JVM) services whose idle pods still reserve hundreds of megabytes of memory. A **zero-scale architecture** solves this by scaling an application's `Deployment` all the way down to `0` replicas when idle and spinning it back up on demand when traffic arrives.
 
-Scaling down to zero is straightforward for **queue- or event-driven** workers: a message sits safely in Kafka, RabbitMQ, or Amazon Simple Queue Service (SQS) while Kubernetes Event-driven Autoscaling (KEDA) scales a consumer from `0` to `1`. **Hypertext Transfer Protocol (HTTP) workloads are harder**:
+Scaling down to zero is straightforward for **queue- or event-driven** workers: a message sits safely in Kafka, RabbitMQ, or Amazon Simple Queue Service (SQS) while Kubernetes Event-driven Autoscaling (KEDA) scales a consumer from `0` to `1`. 
+
+However, for **Web/Hypertext Transfer Protocol (HTTP) workloads**, things get harder:
 
 - Standard Kubernetes Horizontal Pod Autoscaler (HPA) cannot hold an incoming HTTP connection while a pod starts. If a `Deployment` has `0` replicas, an incoming request hits a `Service` with no endpoints and fails immediately with `503 Service Unavailable`.
 - To make HTTP scale-to-zero transparent to callers, a lightweight component must stay in the request path, **intercept and buffer** the incoming HTTP request when the backend is at `0`, signal the autoscaler to wake the workload, wait for the pod's readiness probe to pass, and then forward the held request.
@@ -28,7 +30,7 @@ Whenever a service wakes from `0` replicas on an incoming HTTP request, **applic
 
 Tools such as **Dynatrace OneAgent** (and similar bytecode-instrumenting Java agents) rely on standard JVM Tool Interface (JVMTI) / `-javaagent` bytecode instrumentation on the HotSpot JVM. Because GraalVM Native Image compiles Java ahead-of-time into a closed-world native binary without a standard HotSpot runtime, traditional Java agents cannot instrument it the same way—forcing teams to give up deep automatic tracing, profiling, or established operational workflows.
 
-**Project Leyden AOT Cache** (standardized across Java 24 and Java 25 via Java Development Kit (JDK) Enhancement Proposals—JEP 483, JEP 514, and JEP 515) offers a pragmatic middle ground:
+**Project Leyden AOT Cache** (standardized across Java 24 and Java 25 via Java Development Kit (JDK) Enhancement Proposals - [JEP 483](https://openjdk.org/jeps/483), [JEP 514](https://openjdk.org/jeps/514), and [JEP 515](https://openjdk.org/jeps/515)) offers a pragmatic middle ground:
 
 | Approach | Cold-Start Speed | Standard HotSpot JVM & `-javaagent` (e.g., Dynatrace) | Build Complexity |
 | :--- | :--- | :--- | :--- |
@@ -45,19 +47,24 @@ Because Project Leyden runs on the **standard HotSpot JVM**, you keep full compa
 The demo application, `task-org-webapp`, lets users organize tasks into projects. PostgreSQL runs as a `StatefulSet` at `1` replica backed by a PersistentVolumeClaim (PVC)—we deliberately keep the database running so database cold starts do not distort application scaling. Only `task-org-webapp` scales between `0` and `5` replicas.
 
 ```mermaid
-flowchart LR
+flowchart TD
     Client["Browser / curl (localhost:8008)"]
     LB["k3d LoadBalancer"]
+    subgraph k8s["Kubernetes Cluster"]
     ING["Traefik Ingress (k3s built-in)"]
     INT["KEDA HTTP Interceptor Proxy (keda)"]
     SCALER["KEDA External Scaler & Operator (keda)"]
     APP["task-org-webapp Deployment (0..5 replicas, Java 25 Leyden AOT)"]
-    DB["PostgreSQL StatefulSet (1 replica + PVC)"]
+    DB[("PostgreSQL StatefulSet 
+       (1 replica + PVC)")]
+    end
 
     Client --> LB --> ING --> INT
     INT -. "pending request metric" .-> SCALER
     SCALER -. "scale 0 <-> N via ScaledObject" .-> APP
     INT --> APP --> DB
+    Client@{ shape: browser }
+    style k8s text-align:left
 ```
 
 ### How the KEDA HTTP Add-on Fits In
@@ -73,7 +80,7 @@ When `task-org-webapp` is at `0` replicas, Traefik routes the request to `keda-a
 
 ## 4. Prerequisites & Local `k3d` Cluster Setup
 
-We use two tools for local setup: [Homebrew](https://brew.sh/) and [mise-en-place](https://mise.jdx.dev/). Both work well on Linux, macOS, and Windows Subsystem for Linux (WSL). You also need Docker running locally.
+We use two tools for local setup: [Homebrew](https://brew.sh/) and [mise-en-place](https://mise.jdx.dev/). Both work well on Linux, macOS, and Windows Subsystem for Linux (WSL). You also need [Docker](https://www.docker.com/) running locally.
 
 ### Install Command-Line Interface (CLI) Tools
 
@@ -89,6 +96,7 @@ You can also install `k3d` and Java 25 with `mise`:
 mise use k3d@latest
 mise use java@temurin-25
 ```
+> **Note:** Add `--global` if you want these tools installed for your entire system rather than just the current directory.
 
 *(Other `k3d` installation options: [https://k3d.io/stable/#installation](https://k3d.io/stable/#installation))*
 
