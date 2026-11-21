@@ -55,8 +55,7 @@ flowchart TD
     INT["KEDA HTTP Interceptor Proxy (keda)"]
     SCALER["KEDA External Scaler & Operator (keda)"]
     APP["task-org-webapp Deployment (0..5 replicas, Java 25 Leyden AOT)"]
-    DB[("PostgreSQL StatefulSet 
-       (1 replica + PVC)")]
+    DB[("PostgreSQL StatefulSet (1 replica + PVC)")]
     end
 
     Client --> LB --> ING --> INT
