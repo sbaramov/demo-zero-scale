@@ -87,25 +87,27 @@ git clone https://github.com/sbaramov/demo-zero-scale.git
 cd demo-zero-scale
 ```
 
-We use two tools for local setup: [Homebrew](https://brew.sh/) and [mise-en-place](https://mise.jdx.dev/). Both work well on Linux, macOS, and Windows Subsystem for Linux (WSL). You also need [Docker](https://www.docker.com/) running locally.
+You will need [Docker](https://www.docker.com/) running locally along with `kubectl`, `k3d`, `helm`, and Java 25.
 
 ### Install Command-Line Interface (CLI) Tools
 
-Install `kubectl`, `k3d`, and `helm` (on Linux, Homebrew typically ships newer versions than operating system (OS) package managers):
+Both [Homebrew](https://brew.sh/) and [mise-en-place](https://mise.jdx.dev/) are great choices for installing these tools on Linux, macOS, and Windows Subsystem for Linux (WSL), and both typically provide newer releases than default operating system (OS) package managers. You only need **one** of them—though **`mise` is especially useful if you work with multiple Java versions**, because it makes switching between (or pinning per-project) JDK versions effortless without disturbing the rest of your system.
+
+**Option A: Using `mise` (recommended for flexible JDK version management)**
+
+```bash
+mise use kubectl@latest k3d@latest helm@latest java@temurin-25
+```
+
+> **Note:** Add `--global` (for example, `mise use --global k3d@latest`) if you want these tools installed across your entire system rather than scoped to the current directory.
+
+**Option B: Using Homebrew**
 
 ```bash
 brew install kubectl k3d helm
 ```
 
-You can also install `k3d` and Java 25 with `mise`:
-
-```bash
-mise use k3d@latest
-mise use java@temurin-25
-```
-> **Note:** Add `--global` if you want these tools installed for your entire system rather than just the current directory.
-
-*(Other `k3d` installation options: [https://k3d.io/stable/#installation](https://k3d.io/stable/#installation))*
+*(If you use Homebrew for the Kubernetes CLI tools, you can still use `mise`—or your preferred JDK manager—just for `java@temurin-25`. Other `k3d` installation options are listed at [https://k3d.io/stable/#installation](https://k3d.io/stable/#installation).)*
 
 ### Create the `k3d` Cluster
 
