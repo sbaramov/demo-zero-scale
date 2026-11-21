@@ -1,5 +1,5 @@
 INSERT INTO projects (name, description)
-SELECT 'Zero-Scale Article', 'Demo tasks for the Istio + KEDA + Project Leyden article'
+SELECT 'Zero-Scale Article', 'Demo tasks for the KEDA + Project Leyden zero-scale article'
 WHERE NOT EXISTS (SELECT 1 FROM app_seed_history WHERE seed_name = 'initial-seed');
 
 INSERT INTO projects (name, description)
@@ -7,7 +7,7 @@ SELECT 'Personal Errands', 'Everyday tasks organized by project'
 WHERE NOT EXISTS (SELECT 1 FROM app_seed_history WHERE seed_name = 'initial-seed');
 
 INSERT INTO tasks (project_id, title, completed)
-SELECT p.id, 'Set up k3d cluster with Istio and KEDA', true
+SELECT p.id, 'Set up k3d cluster with Traefik and KEDA', true
 FROM projects p
 WHERE p.name = 'Zero-Scale Article'
   AND NOT EXISTS (SELECT 1 FROM app_seed_history WHERE seed_name = 'initial-seed');

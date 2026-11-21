@@ -1,4 +1,4 @@
-# Zero-Scale Architecture for Java and Spring Boot on Kubernetes with Istio, KEDA, and Project Leyden
+# Zero-Scale Architecture for Java and Spring Boot on Kubernetes with KEDA, Traefik, and Project Leyden
 
 ## 1. Overview & Motivation
 
@@ -11,10 +11,12 @@ Scaling down to zero is straightforward for **queue- or event-driven** workers: 
 
 In this article, we build and run a complete local zero-scale stack on **`k3d`** combining:
 
-- **Istio Service Mesh** (`Gateway` + `VirtualService`) for ingress and mesh traffic management
+- **Traefik Ingress** (built into `k3d`) for lightweight HTTP ingress routing
 - **KEDA Core + the KEDA HTTP Add-on** (`InterceptorRoute` + `ScaledObject`) for HTTP request interception and scale-to-zero
 - **Java 25 + Spring Boot 4.1 with Project Leyden Ahead-of-Time (AOT) Cache** to cut JVM cold-start latency
 - **PostgreSQL deployed as a `StatefulSet`** backing a real task-organizer web application (`task-org-webapp`)
+
+Later in Section 8, we also cover how this architecture behaves when deployed inside popular service meshes—specifically **Istio** and **Linkerd**.
 
 ---
 
@@ -31,10 +33,10 @@ Tools such as **Dynatrace OneAgent** (and similar bytecode-instrumenting Java ag
 | Approach | Cold-Start Speed | Standard HotSpot JVM & `-javaagent` (e.g., Dynatrace) | Build Complexity |
 | :--- | :--- | :--- | :--- |
 | Standard JVM (JIT) | Baseline | Full support | Low |
-| **Java 25 Project Leyden AOT Cache** | **~2x+ faster Spring Boot startup** | **Full support** | **Low (one training run in `Dockerfile`)** |
+| **Java 25 Project Leyden AOT Cache** | **~2–2.5x faster Spring Boot startup** | **Full support** | **Low (one training run in `Dockerfile`)** |
 | GraalVM Native Image | Fastest (~50–100 ms) | Limited / no standard JVM agent instrumentation | High (reachability metadata, longer builds) |
 
-Because Project Leyden runs on the **standard HotSpot JVM**, you keep full compatibility with Dynatrace and other JVM agents while still cutting Spring Boot startup time in half.
+Because Project Leyden runs on the **standard HotSpot JVM**, you keep full compatibility with Dynatrace and other JVM agents while still cutting Spring Boot startup time by more than half.
 
 ---
 
@@ -46,14 +48,13 @@ The demo application, `task-org-webapp`, lets users organize tasks into projects
 flowchart LR
     Client["Browser / curl (localhost:8008)"]
     LB["k3d LoadBalancer"]
-    GW["Istio Ingress Gateway (istio-system)"]
-    VS["Istio VirtualService (task-org)"]
+    ING["Traefik Ingress (k3s built-in)"]
     INT["KEDA HTTP Interceptor Proxy (keda)"]
     SCALER["KEDA External Scaler & Operator (keda)"]
     APP["task-org-webapp Deployment (0..5 replicas, Java 25 Leyden AOT)"]
     DB["PostgreSQL StatefulSet (1 replica + PVC)"]
 
-    Client --> LB --> GW --> VS --> INT
+    Client --> LB --> ING --> INT
     INT -. "pending request metric" .-> SCALER
     SCALER -. "scale 0 <-> N via ScaledObject" .-> APP
     INT --> APP --> DB
@@ -66,7 +67,7 @@ The **KEDA HTTP Add-on** (`kedacore/http-add-on`) is an official companion chart
 1. **`InterceptorRoute` (`http.keda.sh/v1beta1`):** Tells the KEDA HTTP Interceptor which incoming host/path to match, which backend Kubernetes `Service` to forward to, and what request-rate metric to report.
 2. **`ScaledObject` (`keda.sh/v1alpha1`):** A standard KEDA `ScaledObject` targeting the `task-org-webapp` `Deployment` with `minReplicaCount: 0`, wired to the HTTP Add-on's external scaler via an `external-push` trigger.
 
-When `task-org-webapp` is at `0` replicas, Istio routes the request to `keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080`. The Interceptor holds the HTTP request in memory, notifies the external scaler, waits for Kubernetes to schedule a pod and pass `/actuator/health/readiness`, and then forwards the request seamlessly.
+When `task-org-webapp` is at `0` replicas, Traefik routes the request to `keda-add-ons-http-interceptor-proxy` on port `8080`. The Interceptor holds the HTTP request in memory, notifies the external scaler, waits for Kubernetes to schedule a pod and pass `/actuator/health/readiness`, and then forwards the request seamlessly.
 
 ---
 
@@ -76,10 +77,10 @@ We use two tools for local setup: [Homebrew](https://brew.sh/) and [mise-en-plac
 
 ### Install Command-Line Interface (CLI) Tools
 
-Install `kubectl`, `k3d`, `helm`, and `istioctl` (on Linux, Homebrew typically ships newer versions than operating system (OS) package managers):
+Install `kubectl`, `k3d`, and `helm` (on Linux, Homebrew typically ships newer versions than operating system (OS) package managers):
 
 ```bash
-brew install kubectl k3d helm istioctl
+brew install kubectl k3d helm
 ```
 
 You can also install `k3d` and Java 25 with `mise`:
@@ -93,29 +94,19 @@ mise use java@temurin-25
 
 ### Create the `k3d` Cluster
 
-`k3d` ships with Traefik enabled on port `80` by default. Disable Traefik so Istio's Ingress Gateway owns port `80` cleanly, expose it on `localhost:8008` (avoiding conflict with local Spring Boot development on `8080`), and raise kubelet's image garbage-collection thresholds so locally imported images aren't evicted while the app is scaled to `0` on a busy disk:
+`k3d` ships with **Traefik Ingress** enabled on port `80` out of the box. We expose it on host port `8008` (avoiding conflict with local Spring Boot development on `8080`), and raise kubelet's image garbage-collection thresholds so locally imported images aren't evicted while the app is scaled to `0` on a busy disk:
 
 ```bash
 k3d cluster create zero-scale \
   -p "8008:80@loadbalancer" \
-  --k3s-arg "--disable=traefik@server:0" \
   --k3s-arg "--kubelet-arg=image-gc-high-threshold=96@server:0" \
   --k3s-arg "--kubelet-arg=image-gc-low-threshold=92@server:0"
 ```
 
-### Install Istio, KEDA Core, and the KEDA HTTP Add-on
-
-Install Istio using the `default` profile (which includes `istiod` and `istio-ingressgateway`):
-
-```bash
-istioctl install --set profile=default -y
-```
-
-Create the `keda` namespace and **explicitly disable Istio sidecar injection** on it (`istio-injection=disabled`) so Istio mutual Transport Layer Security (mTLS) does not interfere with KEDA's internal Application Programming Interface (API) service and admission webhooks:
+### Install KEDA Core and the KEDA HTTP Add-on
 
 ```bash
 kubectl create namespace keda
-kubectl label namespace keda istio-injection=disabled --overwrite
 
 helm repo add kedacore https://kedacore.github.io/charts
 helm repo update
@@ -128,7 +119,6 @@ helm upgrade --install keda kedacore/keda \
 
 helm upgrade --install http-add-on kedacore/keda-add-ons-http \
   --namespace keda \
-  --set images.pullPolicy=IfNotPresent \
   --wait \
   --timeout 10m
 ```
@@ -141,7 +131,7 @@ helm upgrade --install http-add-on kedacore/keda-add-ons-http \
 
 The `task-org-webapp/` directory contains a **Spring Boot 4.1.2 / Java 25** application using:
 
-- **Spring WebMVC** for the JavaScript Object Notation (JSON) Representational State Transfer (REST) API (`/api/projects`, `/api/projects/{projectId}/tasks`, `/api/tasks/{id}`)
+- **Spring WebMVC** for the JavaScript Object Notation (JSON) Representational State Transfer (REST) Application Programming Interface (API) (`/api/projects`, `/api/projects/{projectId}/tasks`, `/api/tasks/{id}`)
 - **Spring Data Java Database Connectivity (JDBC)** with PostgreSQL (`schema.sql` + idempotent `data.sql` seed data)
 - **Spring Boot Actuator** exposing `/actuator/health/readiness` and `/actuator/health/liveness`
 - **Bootstrap 5 via Content Delivery Network (CDN) + vanilla JavaScript (JS)** (`src/main/resources/static/index.html` and `app.js`) so the User Interface (UI) requires zero Node.js build tooling and adds no classpath overhead
@@ -207,7 +197,7 @@ k3d image import task-org-webapp:latest -c zero-scale
 
 ## 6. Deploying to Kubernetes
 
-All manifests live under `k8s/` in numbered folders so you can apply them in order:
+All manifests live under `k8s/` in numbered folders so you can apply them in order (or run `./scripts/deploy.sh`):
 
 ```bash
 kubectl apply -f k8s/00-namespace.yaml
@@ -218,15 +208,14 @@ kubectl apply -f k8s/02-app/
 kubectl rollout status deployment/task-org-webapp -n task-org --timeout=180s
 
 kubectl apply -f k8s/03-keda/
-kubectl apply -f k8s/04-istio/
+kubectl apply -f k8s/04-ingress/
 ```
 
 ### Key Manifest Highlights
 
-1. **Namespace (`k8s/00-namespace.yaml`):** Enables Istio sidecar injection (`istio-injection: enabled`) on `task-org`.
-2. **PostgreSQL `StatefulSet` (`k8s/01-postgres/statefulset.yaml`):** Runs `postgres:17-alpine` with `replicas: 1`, a `1Gi` `volumeClaimTemplates` PVC, and a `pg_isready` readiness probe.
-3. **App `Deployment` (`k8s/02-app/deployment.yaml`):** Enables Project Leyden via `JAVA_TOOL_OPTIONS: "-XX:AOTCache=app.aot"` and configures an aggressive readiness probe (`periodSeconds: 1`, `initialDelaySeconds: 0` against `/actuator/health/readiness`) so the KEDA Interceptor forwards traffic the moment Spring Boot is ready.
-4. **KEDA `InterceptorRoute` + `ScaledObject` (`k8s/03-keda/`):**
+1. **PostgreSQL `StatefulSet` (`k8s/01-postgres/statefulset.yaml`):** Runs `postgres:17-alpine` with `replicas: 1`, a `1Gi` `volumeClaimTemplates` PVC, and a `pg_isready` readiness probe.
+2. **App `Deployment` (`k8s/02-app/deployment.yaml`):** Enables Project Leyden via `JAVA_TOOL_OPTIONS: "-XX:AOTCache=app.aot"` and configures an aggressive readiness probe (`periodSeconds: 1`, `initialDelaySeconds: 0` against `/actuator/health/readiness`) so the KEDA Interceptor forwards traffic the moment Spring Boot is ready.
+3. **KEDA `InterceptorRoute` + `ScaledObject` (`k8s/03-keda/`):**
 
 ```yaml
 # k8s/03-keda/interceptor-route.yaml
@@ -241,7 +230,8 @@ spec:
     port: 8080
   rules:
     - hosts:
-        - task-org.local
+        - localhost
+        - 127.0.0.1
       paths:
         - value: /
   scalingMetric:
@@ -274,35 +264,34 @@ spec:
         interceptorRoute: task-org-webapp
 ```
 
-5. **Istio `Gateway` + `VirtualService` (`k8s/04-istio/`):** The `VirtualService` rewrites the authority (`Host`) header to `task-org.local` and routes all traffic to the KEDA HTTP Interceptor proxy, so `http://localhost:8008` works directly in a browser or `curl` without editing `/etc/hosts`:
+4. **Traefik `Ingress` (`k8s/04-ingress/ingress.yaml`):** Created in the `keda` namespace so it can target `keda-add-ons-http-interceptor-proxy` directly without needing cross-namespace `ExternalName` workarounds:
 
 ```yaml
-# k8s/04-istio/virtual-service.yaml
-apiVersion: networking.istio.io/v1
-kind: VirtualService
+# k8s/04-ingress/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: task-org-vs
-  namespace: task-org
+  name: task-org-ingress
+  namespace: keda
 spec:
-  hosts:
-    - "*"
-  gateways:
-    - task-org-gateway
-  http:
-    - rewrite:
-        authority: task-org.local
-      route:
-        - destination:
-            host: keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local
-            port:
-              number: 8080
+  ingressClassName: traefik
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keda-add-ons-http-interceptor-proxy
+                port:
+                  number: 8080
 ```
 
 ---
 
 ## 7. Testing Scale-to-Zero & Benchmarking Cold Starts
 
-Wait ~30 seconds with no traffic and watch `task-org-webapp` scale down to `0` while `postgres-0` stays `2/2 Running`:
+Wait ~30 seconds with no traffic and watch `task-org-webapp` scale down to `0` while `postgres-0` stays `1/1 Running`:
 
 ```bash
 kubectl get pods -n task-org -w
@@ -316,31 +305,58 @@ Now open [http://localhost:8008](http://localhost:8008) in your browser, or run 
 
 The script toggles `JAVA_TOOL_OPTIONS` between unset (baseline JVM) and `-XX:AOTCache=app.aot` (Project Leyden), waits for `task-org-webapp` to scale to `0`, sends a cold-start `GET http://localhost:8008/api/projects`, and records both the end-to-end HTTP latency and Spring Boot's startup log line.
 
-### Measured Results (Local `k3d` Cluster, Java 25.0.2, Spring Boot 4.1.2)
+### Measured Results (Local `k3d` Cluster, Traefik + KEDA, Java 25, Spring Boot 4.1.2)
 
 | Metric | Baseline JVM (no AOT cache) | Project Leyden AOT Cache (`-XX:AOTCache=app.aot`) | Improvement |
 | :--- | :---: | :---: | :---: |
-| **Spring Boot startup** (`Started TaskOrgWebappApplication`) | `2.100 s` *(process: `2.290 s`)* | **`0.942 s`** *(process: `1.077 s`)* | **~55% faster (2.2x)** |
+| **Spring Boot startup** (`Started TaskOrgWebappApplication`) | `2.496 s` *(process: `2.703 s`)* | **`0.986 s`** *(process: `1.128 s`)* | **~60% faster (2.5x)** |
 | **Isolated container startup** (`docker run`, `onRefresh` exit) | `3.12 s` *(context: `1121 ms`)* | **`1.84 s`** *(context: `520 ms`)* | **~41% faster** |
-| **End-to-end cold-start HTTP Time to First Byte (TTFB)** (0 -> 1 via Istio + KEDA) | `7.64 s` *(HTTP 200)* | **`7.27 s`** *(HTTP 200)* | **~0.37 s faster** |
+| **End-to-end cold-start HTTP Time to First Byte (TTFB)** (0 -> 1 via Traefik + KEDA) | `4.22 s` *(HTTP 200)* | **`3.19 s`** *(HTTP 200)* | **~1.03 s faster (~24%)** |
 | **Cold-start HTTP errors (`502`/`503`)** | `0` | **`0`** | Transparent wake-up |
 
-### What the Numbers Actually Tell Us
+### What the Numbers Tell Us
 
-Two things stand out immediately in real cluster measurements:
-
-1. **Project Leyden delivers a dramatic JVM win with zero code or APM compromises:** Spring Boot startup drops from **2.10s to 0.94s** (under 1 second!), while still running on the standard HotSpot JVM where Dynatrace and other Java agents work out of the box.
-2. **In a Kubernetes + Istio stack, the JVM is no longer the largest part of cold-start latency:** Once Spring Boot boots in ~0.94s, the remaining ~6 seconds of end-to-end TTFB comes from **Kubernetes pod scheduling, Istio sidecar (`istio-init` + `istio-proxy`) initialization, endpoint propagation, and readiness probe polling**.
+1. **Project Leyden delivers a dramatic JVM win with zero code or APM compromises:** Spring Boot startup drops from **2.50s to 0.99s** (under 1 second!), while still running on the standard HotSpot JVM where Dynatrace and other Java agents work out of the box.
+2. **End-to-end cold start drops to ~3.19s:** The remaining ~2.2 seconds beyond Spring Boot's own startup comes from Kubernetes pod scheduling, container startup, readiness probe polling, and KEDA endpoint propagation.
 
 ---
 
-## 8. Summary & Production Caveats
+## 8. Running Zero-Scale Inside a Service Mesh (Istio & Linkerd)
 
-Combining **Istio Service Mesh**, **KEDA Core + KEDA HTTP Add-on**, and **Java 25 Project Leyden AOT Cache** gives Java/Spring Boot teams a practical, observable zero-scale architecture on Kubernetes without giving up JVM APM instrumentation.
+Our local `k3d` demo uses Traefik Ingress because **you do not need a service mesh to implement scale-to-zero**—KEDA and the KEDA HTTP Add-on handle all request buffering and scaling on their own.
+
+In production, however, many Kubernetes platforms already run a service mesh such as **Istio** or **Linkerd** for mutual Transport Layer Security (mTLS), traffic splitting, and golden-signal telemetry. Both meshes work with KEDA's HTTP Add-on, with two important considerations: **control-plane exclusion** and **sidecar cold-start overhead**.
+
+### Istio
+
+- **Routing:** Point your Istio `Gateway` and `VirtualService` at `keda-add-ons-http-interceptor-proxy.keda.svc.cluster.local:8080` instead of directly at your application's `Service`. The KEDA Interceptor then forwards traffic to your meshed `task-org-webapp` Service.
+- **Control-plane exclusion:** Disable sidecar injection on the `keda` namespace (`kubectl label namespace keda istio-injection=disabled`)—or configure KEDA's documented port-exclusion annotations—so Istio mTLS does not interfere with KEDA's internal metrics API server and admission webhooks.
+- **Classic sidecar mode vs. Istio Ambient Mode:** In classic sidecar mode, every pod wake-up must also run `istio-init` and boot an Envoy (`istio-proxy`) sidecar before application traffic flows. In our earlier `k3d` tests with Istio sidecars enabled on this exact same app, end-to-end cold-start TTFB jumped from **~3.19s to ~7.27s**—adding roughly **4 seconds** of sidecar overhead on top of a sub-second Spring Boot startup. If cold-start latency is tight and you use Istio, **Istio Ambient Mode** eliminates per-pod sidecars by moving L4 mTLS to a shared node-level `ztunnel` (zero-trust tunnel), avoiding the per-pod Envoy startup tax altogether.
+
+### Linkerd
+
+- **Routing:** Linkerd intentionally does not bundle its own ingress controller; it pairs with your existing ingress (such as Traefik, NGINX, or Kubernetes Gateway API `HTTPRoute`), which routes to `keda-add-ons-http-interceptor-proxy` just like our demo.
+- **Control-plane exclusion:** Keep the `keda` namespace unmeshed (`linkerd.io/inject: disabled`) so KEDA's webhooks and metrics server remain unaffected.
+- **Lower sidecar cold-start overhead:** Unlike Istio's Envoy sidecar, Linkerd injects `linkerd2-proxy`, a purpose-built micro-proxy written in Rust. Because `linkerd2-proxy` has a much smaller memory footprint and faster startup than Envoy, its cold-start tax during `0 -> 1` scale-up is noticeably lower than classic Istio sidecar mode while still providing automatic mTLS and Layer 7 metrics.
+
+### Choosing an Ingress / Mesh Topology for Zero-Scale
+
+| Topology | Cold-Start Overhead | Mesh mTLS & Telemetry | Key KEDA Configuration |
+| :--- | :--- | :--- | :--- |
+| **Plain Ingress (Traefik / NGINX)** *(this demo)* | Lowest (~3.2s TTFB) | Ingress-only | Standard `Ingress` -> KEDA Interceptor |
+| **Linkerd (sidecar)** | Low–Moderate (fast Rust proxy) | Full mesh mTLS + L7 metrics | `linkerd.io/inject: disabled` on `keda` |
+| **Istio (Ambient Mode)** | Low (no per-pod sidecar) | Full mesh mTLS via node `ztunnel` | `Gateway`/`VirtualService` -> KEDA Interceptor |
+| **Istio (classic sidecar)** | Highest (~7.3s TTFB in `k3d`) | Full mesh mTLS + Envoy features | `istio-injection=disabled` on `keda` |
+
+---
+
+## 9. Summary & Production Caveats
+
+Combining **Traefik Ingress**, **KEDA Core + KEDA HTTP Add-on**, and **Java 25 Project Leyden AOT Cache** gives Java/Spring Boot teams a fast, observable zero-scale architecture on Kubernetes without giving up JVM APM instrumentation.
 
 Before taking this pattern to production, keep four operational details in mind:
 
-- **Istio sidecar startup overhead:** As our benchmark showed, classic Istio sidecar injection (`istio-init` + Envoy startup) adds several seconds to every cold start. If cold-start TTFB is tight, consider **Istio Ambient Mode** (which eliminates per-pod sidecars) or tune sidecar `holdApplicationUntilProxyStarts` and resource requests carefully.
 - **Readiness probe cadence:** A default `periodSeconds: 10` readiness probe can easily add 5–10 seconds of artificial delay after Spring Boot is already ready. Using `periodSeconds: 1` (or a Kubernetes `startupProbe` with a 1-second period) ensures the KEDA Interceptor forwards traffic immediately.
 - **Cooldown period tuning:** We used `cooldownPeriod: 30` seconds for a snappy local demo. In production, set `cooldownPeriod` to several minutes (for example, `300`–`900` seconds) to avoid thrashing pods up and down between bursts.
 - **Database connection pools:** When scaling from `0` to `N` pods under a sudden traffic spike, cap `spring.datasource.hikari.maximum-pool-size` conservatively (or place PgBouncer in front of PostgreSQL) so concurrent wake-ups do not exhaust PostgreSQL's `max_connections`.
+- **Service mesh sidecar overhead:** If you run a sidecar-based service mesh in production, benchmark cold-start TTFB with sidecars enabled—as shown in Section 8, sidecar initialization can easily outweigh JVM startup time unless you tune sidecar startup or use a sidecarless data plane such as Istio Ambient Mode.
