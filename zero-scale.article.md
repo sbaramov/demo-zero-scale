@@ -11,7 +11,7 @@ However, for **Web/Hypertext Transfer Protocol (HTTP) workloads**, things get ha
 - Standard Kubernetes Horizontal Pod Autoscaler (HPA) cannot hold an incoming HTTP connection while a pod starts. If a `Deployment` has `0` replicas, an incoming request hits a `Service` with no endpoints and fails immediately with `503 Service Unavailable`.
 - To make HTTP scale-to-zero transparent to callers, a lightweight component must stay in the request path, **intercept and buffer** the incoming HTTP request when the backend is at `0`, signal the autoscaler to wake the workload, wait for the pod's readiness probe to pass, and then forward the held request.
 
-In this article, we build and run a complete local zero-scale stack on **`k3d`** combining:
+In this article, we build and run a complete local zero-scale stack on **`k3d`** (all source code, Kubernetes manifests, and scripts are available in the [demo-zero-scale](https://github.com/sbaramov/demo-zero-scale) GitHub repository) combining:
 
 - **Traefik Ingress** (built into `k3d`) for lightweight HTTP ingress routing
 - **KEDA Core + the KEDA HTTP Add-on** (`InterceptorRoute` + `ScaledObject`) for HTTP request interception and scale-to-zero
@@ -79,6 +79,13 @@ When `task-org-webapp` is at `0` replicas, Traefik routes the request to `keda-a
 ---
 
 ## 4. Prerequisites & Local `k3d` Cluster Setup
+
+Clone the companion repository to follow along with the manifests and helper scripts:
+
+```bash
+git clone https://github.com/sbaramov/demo-zero-scale.git
+cd demo-zero-scale
+```
 
 We use two tools for local setup: [Homebrew](https://brew.sh/) and [mise-en-place](https://mise.jdx.dev/). Both work well on Linux, macOS, and Windows Subsystem for Linux (WSL). You also need [Docker](https://www.docker.com/) running locally.
 
