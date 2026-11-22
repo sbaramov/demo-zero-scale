@@ -18,6 +18,9 @@ import java.util.List;
 @RestController
 public class TaskController {
 
+    /** Matches {@code tasks.title VARCHAR(300)} in schema.sql. */
+    static final int MAX_TITLE_LENGTH = 300;
+
     private final TaskRepository taskRepository;
     private final ProjectRepository projectRepository;
 
@@ -40,16 +43,16 @@ public class TaskController {
         return taskRepository.findByProjectIdOrderByIdAsc(projectId);
     }
 
+    // Validation is done by hand instead of via spring-boot-starter-validation (Bean Validation)
+    // to keep the classpath, and therefore cold-start time, as small as possible.
     @PostMapping("/api/projects/{projectId}/tasks")
     @ResponseStatus(HttpStatus.CREATED)
     public Task createTask(@PathVariable Long projectId, @RequestBody CreateTaskRequest request) {
         if (!projectRepository.existsById(projectId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found: " + projectId);
         }
-        if (request == null || request.title() == null || request.title().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task title must not be blank");
-        }
-        return taskRepository.save(new Task(null, projectId, request.title().trim(), false, Instant.now()));
+        String title = validateTitle(request == null ? null : request.title());
+        return taskRepository.save(new Task(null, projectId, title, false, Instant.now()));
     }
 
     @PatchMapping("/api/tasks/{id}")
@@ -58,15 +61,24 @@ public class TaskController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found: " + id));
         String title = existing.title();
         if (request != null && request.title() != null) {
-            if (request.title().isBlank()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task title must not be blank");
-            }
-            title = request.title().trim();
+            title = validateTitle(request.title());
         }
         boolean completed = (request != null && request.completed() != null)
                 ? request.completed()
                 : existing.completed();
         return taskRepository.save(new Task(existing.id(), existing.projectId(), title, completed, existing.createdAt()));
+    }
+
+    private static String validateTitle(String rawTitle) {
+        if (rawTitle == null || rawTitle.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Task title must not be blank");
+        }
+        String trimmed = rawTitle.trim();
+        if (trimmed.length() > MAX_TITLE_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Task title must be at most " + MAX_TITLE_LENGTH + " characters");
+        }
+        return trimmed;
     }
 
     @DeleteMapping("/api/tasks/{id}")

@@ -126,6 +126,48 @@ class ApiAndUiTests {
     }
 
     @Test
+    void rejectsOverlongProjectNameAndTaskTitleWith400() throws Exception {
+        String longName = "p".repeat(201);
+        mockMvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + longName + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").isNotEmpty());
+
+        MvcResult created = mockMvc.perform(post("/api/projects")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Length Limits"}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long projectId = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+
+        String longTitle = "t".repeat(301);
+        mockMvc.perform(post("/api/projects/" + projectId + "/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"" + longTitle + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").isNotEmpty());
+
+        MvcResult taskCreated = mockMvc.perform(post("/api/projects/" + projectId + "/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"" + "t".repeat(300) + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        long taskId = objectMapper.readTree(taskCreated.getResponse().getContentAsString()).get("id").asLong();
+
+        mockMvc.perform(patch("/api/tasks/" + taskId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"" + longTitle + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").isNotEmpty());
+
+        mockMvc.perform(delete("/api/projects/" + projectId))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
     void returns404ForMissingProjectOrTask() throws Exception {
         mockMvc.perform(get("/api/projects/99999/tasks"))
                 .andExpect(status().isNotFound());

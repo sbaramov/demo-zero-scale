@@ -1,6 +1,7 @@
 let projects = [];
 let selectedProjectId = null;
 
+const loadingBanner = document.getElementById("loading-banner");
 const errorBanner = document.getElementById("error-banner");
 const projectForm = document.getElementById("project-form");
 const projectNameInput = document.getElementById("project-name");
@@ -25,25 +26,58 @@ function clearError() {
     errorBanner.classList.add("d-none");
 }
 
+let pendingRequests = 0;
+let loadingTimer = null;
+
+function beginLoading() {
+    pendingRequests += 1;
+    if (pendingRequests === 1) {
+        // Delay briefly so warm (<400ms) requests don't flicker; cold starts show clear feedback.
+        loadingTimer = setTimeout(() => {
+            if (pendingRequests > 0) {
+                loadingBanner.classList.remove("d-none");
+                loadingBanner.classList.add("d-flex");
+            }
+        }, 400);
+    }
+}
+
+function endLoading() {
+    pendingRequests = Math.max(0, pendingRequests - 1);
+    if (pendingRequests === 0) {
+        if (loadingTimer !== null) {
+            clearTimeout(loadingTimer);
+            loadingTimer = null;
+        }
+        loadingBanner.classList.add("d-none");
+        loadingBanner.classList.remove("d-flex");
+    }
+}
+
 async function apiFetch(url, options = {}) {
     clearError();
-    const response = await fetch(url, {
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-        ...options
-    });
-    if (!response.ok) {
-        let message = `Request failed (${response.status})`;
-        try {
-            const body = await response.json();
-            if (body && body.error) {
-                message = body.error;
+    beginLoading();
+    try {
+        const response = await fetch(url, {
+            headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+            ...options
+        });
+        if (!response.ok) {
+            let message = `Request failed (${response.status})`;
+            try {
+                const body = await response.json();
+                if (body && body.error) {
+                    message = body.error;
+                }
+            } catch (_) {
+                // ignore non-JSON error bodies
             }
-        } catch (_) {
-            // ignore non-JSON error bodies
+            throw new Error(message);
         }
-        throw new Error(message);
+        return response.status === 204 ? null : response.json();
+    } finally {
+        endLoading();
     }
-    return response.status === 204 ? null : response.json();
 }
 
 function renderProjects() {

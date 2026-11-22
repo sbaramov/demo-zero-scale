@@ -1,3 +1,8 @@
+# Placed in the `keda` namespace for simplicity in this local demo so it can target
+# `keda-add-ons-http-interceptor-proxy` directly. In multi-tenant production clusters where
+# app teams cannot create resources in the platform's `keda` namespace, use an ExternalName
+# Service in `task-org`, a Traefik IngressRoute with `allowCrossNamespace: true`, or
+# Kubernetes Gateway API HTTPRoute with a ReferenceGrant.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

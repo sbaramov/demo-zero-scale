@@ -4,6 +4,9 @@ metadata:
   name: task-org-webapp
   namespace: task-org
 spec:
+  # Kept at 1 so `kubectl apply` and `./scripts/deploy.sh` verify a healthy rollout.
+  # In production (especially with GitOps tools like Argo CD or Flux), omit `replicas`
+  # so reconcilers do not fight KEDA over the desired replica count.
   replicas: 1
   selector:
     matchLabels:
@@ -13,10 +16,16 @@ spec:
       labels:
         app: task-org-webapp
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
       containers:
         - name: task-org-webapp
           image: task-org-webapp:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
           ports:
             - containerPort: 8080
               name: http
@@ -33,24 +42,35 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
+            # Schema creation and one-time seeding are handled by k8s/01-postgres/init-job.yaml
+            # so pods never execute DDL/DML on the cold-start critical path.
+            - name: SPRING_SQL_INIT_MODE
+              value: "never"
+            # Strict AOT mode fails fast if the cache cannot be loaded rather than silently falling back.
             - name: JAVA_TOOL_OPTIONS
-              value: "-XX:AOTCache=app.aot"
+              value: "-XX:AOTMode=on -XX:AOTCache=app.aot"
+          # Avoid gating readinessProbe behind a startupProbe on sub-second cold starts:
+          # kubelet withholds readiness checks until startupProbe passes, adding an extra
+          # polling cycle. Use an aggressive readinessProbe + a generous liveness initialDelay.
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: 8080
             initialDelaySeconds: 0
             periodSeconds: 1
-            failureThreshold: 30
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
               port: 8080
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 3
           resources:
             requests:
               cpu: 250m
               memory: 256Mi
+            # CPU limit is intentionally omitted: JVM startup is CPU-bound and tight
+            # CFS throttling erodes Project Leyden's cold-start gains.
             limits:
               memory: 512Mi

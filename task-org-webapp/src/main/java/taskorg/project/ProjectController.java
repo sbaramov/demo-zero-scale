@@ -18,6 +18,9 @@ import java.util.List;
 @RequestMapping("/api/projects")
 public class ProjectController {
 
+    /** Matches {@code projects.name VARCHAR(200)} in schema.sql. */
+    static final int MAX_NAME_LENGTH = 200;
+
     private final ProjectRepository projectRepository;
 
     public ProjectController(ProjectRepository projectRepository) {
@@ -32,14 +35,21 @@ public class ProjectController {
         return projectRepository.findAllByOrderByIdAsc();
     }
 
+    // Validation is done by hand instead of via spring-boot-starter-validation (Bean Validation)
+    // to keep the classpath, and therefore cold-start time, as small as possible.
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public Project createProject(@RequestBody CreateProjectRequest request) {
         if (request == null || request.name() == null || request.name().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Project name must not be blank");
         }
+        String name = request.name().trim();
+        if (name.length() > MAX_NAME_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Project name must be at most " + MAX_NAME_LENGTH + " characters");
+        }
         String description = request.description() == null ? "" : request.description().trim();
-        return projectRepository.save(new Project(null, request.name().trim(), description, Instant.now()));
+        return projectRepository.save(new Project(null, name, description, Instant.now()));
     }
 
     @DeleteMapping("/{id}")

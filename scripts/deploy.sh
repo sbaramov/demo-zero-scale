@@ -10,10 +10,11 @@ echo "==> 1. Building and importing task-org-webapp:latest into k3d '${CLUSTER_N
 docker build -t task-org-webapp:latest "${ROOT_DIR}/task-org-webapp"
 k3d image import task-org-webapp:latest -c "${CLUSTER_NAME}"
 
-echo "==> 2. Applying Postgres StatefulSet, app, KEDA, and Ingress manifests..."
+echo "==> 2. Applying Postgres StatefulSet, DB init Job, app, KEDA, and Ingress manifests..."
 kubectl apply -f "${ROOT_DIR}/k8s/00-namespace.yaml"
 kubectl apply -f "${ROOT_DIR}/k8s/01-postgres/"
 kubectl rollout status statefulset/postgres -n task-org --timeout=180s
+kubectl wait --for=condition=complete job/postgres-init -n task-org --timeout=120s
 
 kubectl apply -f "${ROOT_DIR}/k8s/02-app/"
 kubectl rollout restart deployment/task-org-webapp -n task-org
