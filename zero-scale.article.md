@@ -448,3 +448,43 @@ Before taking this pattern to production, keep these operational details in mind
 - **Control-plane cost break-even:** KEDA Core, the HTTP external scaler, and the HTTP Interceptor run continuously (7 pods in this default Helm install). Zero-scale pays off when amortized across **many** bursty, internal, or preview services—not for a single low-traffic workload.
 - **When not to use zero-scale:** Avoid scale-to-zero for user-facing endpoints with tight sub-second p99 SLOs, services holding long-lived connections (WebSockets or Server-Sent Events), or workloads that depend on large warm in-memory caches.
 - **Service mesh sidecar overhead & mTLS:** If you run a sidecar-based service mesh in production, benchmark cold-start TTFB with sidecars enabled and verify your mTLS policy on the interceptor-to-app hop—as discussed in Section 8, sidecar initialization can easily outweigh JVM startup time unless you tune sidecar startup (`istio-cni`, native sidecars) or use a sidecarless data plane such as Istio Ambient Mode.
+
+---
+
+## Appendix: Project Leyden AOT Cache vs. Spring AOT (`process-aot`)
+
+Because both features share the **AOT** acronym, it is common to wonder whether you also need to configure `spring-boot-maven-plugin` with the `process-aot` goal to use Project Leyden. You do **not**—the two mechanisms operate at different layers:
+
+| Feature | Layer | How It Is Enabled | Used in This Demo? |
+| :--- | :--- | :--- | :--- |
+| **Project Leyden AOT Cache** (JEPs 483 / 514 / 515) | **JVM** (class loading, linking, archived heap, method profiles) | Extracted JAR (`-Djarmode=tools ... extract`) + `-XX:AOTCacheOutput=app.aot` / `-XX:AOTCache=app.aot` | **Yes** |
+| **Spring AOT Processing** | **Spring Framework** (build-time `BeanFactory` & `@Conditional` code generation) | `spring-boot-maven-plugin:process-aot` (or `-Pnative`) + `-Dspring.aot.enabled=true` | **No** |
+
+### Combining Both (Optional)
+
+Project Leyden AOT Cache works on a standard Spring Boot JAR with no `process-aot` step. If you want to stack **Spring AOT** on top of **Project Leyden** for additional startup reduction:
+
+1. **Run `process-aot` at build time** — either by adding a `process-aot` execution to `spring-boot-maven-plugin` in `pom.xml`:
+   ```xml
+   <plugin>
+       <groupId>org.springframework.boot</groupId>
+       <artifactId>spring-boot-maven-plugin</artifactId>
+       <executions>
+           <execution>
+               <goals>
+                   <goal>process-aot</goal>
+               </goals>
+           </execution>
+       </executions>
+   </plugin>
+   ```
+   or, without editing `pom.xml`, by building with the built-in `native` profile from `spring-boot-starter-parent`:
+   ```bash
+   ./mvnw -Pnative package -DskipTests -B
+   ```
+2. **Enable Spring AOT during both training and runtime:** Pass `-Dspring.aot.enabled=true` to both the Leyden training run (`-XX:AOTCacheOutput=app.aot`) and the container `ENTRYPOINT`. Without `-Dspring.aot.enabled=true`, Spring Boot ignores the AOT-generated initialization code when running on the JVM.
+
+### Trade-Offs to Consider
+
+- **Build-time condition lock-in:** Spring AOT evaluates `@Conditional` annotations and conditional `@Profile` beans at **build time**, baking the resulting bean graph into generated source code. Conditional beans can no longer be toggled dynamically at runtime via environment variables or profiles (profiles that only change property values, such as `DB_URL` or `SPRING_SQL_INIT_MODE`, continue to work).
+- **Modest end-to-end return when platform overhead dominates:** As shown in Section 7, Project Leyden alone already brings Spring Boot startup down to `0.79 s`, while KEDA and Kubernetes account for `~2.24 s` (~70% of end-to-end TTFB). Adding Spring AOT can trim Spring startup slightly further, but the trade-off in build-time condition rigidity is worth weighing against the relatively small end-to-end gain.
