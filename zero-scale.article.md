@@ -226,11 +226,12 @@ EXPOSE 8080
 ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-jar", "app.jar"]
 ```
 
-Three practical details in this `Dockerfile` are easy to get wrong in real deployments:
+Four practical details in this `Dockerfile` are easy to get wrong in real deployments:
 
 1. **Matching GC and heap ergonomics:** During `docker build`, the JVM sees the build host's full memory (64 GB on our machine), whereas at runtime the pod is limited to `512Mi` (`MaxRAMPercentage=75` → `384m`). Pinning `-XX:+UseG1GC -Xmx384m` during training matches the `512Mi` container's runtime ergonomics so the AOT cache maps its archived heap with zero relocation delta.
 2. **Verifying that the AOT cache is actually used:** By default (`-XX:AOTMode=auto`), the JVM **silently falls back** to standard startup if `app.aot` is missing, unreadable, or incompatible with the runtime flags. In our Kubernetes `Deployment`, we pass `JAVA_TOOL_OPTIONS="-XX:AOTMode=on -XX:AOTCache=app.aot"` so any cache mismatch fails fast instead of quietly regressing performance. (And `test -s app.aot` fails the image build immediately if the training step fails to write the file—for instance, due to directory ownership.) You can also pass `-Xlog:aot=info` during debugging to confirm `Using AOT-linked classes: true` and `CDS heap data relocation delta = 0 bytes`.
 3. **Keeping AOT toggleable via `JAVA_TOOL_OPTIONS`:** Leaving `-XX:AOTCache=app.aot` out of `ENTRYPOINT` lets our benchmark script toggle baseline JVM vs. Project Leyden AOT on the exact same container image without rebuilding.
+4. **Matching build and cluster CPU architecture:** The generated `app.aot` cache is architecture-specific—an AOT cache built on `x86_64` cannot be used on an `arm64` Kubernetes node (and vice versa). Always run the AOT training pass on the same target architecture as your Kubernetes nodes (for mixed-architecture clusters, build a multi-arch image with `docker buildx` or native `amd64`/`arm64` CI runners so each platform manifest carries its own matching `app.aot`).
 
 Build and import the image into `k3d`:
 
