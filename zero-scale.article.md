@@ -36,7 +36,7 @@ Another HotSpot-based alternative is **Coordinated Restore at Checkpoint (CRaC)*
 
 **Project Leyden AOT Cache** (delivered in JDK 24 and Java 25—the current Long-Term Support (LTS) release—via Java Development Kit (JDK) Enhancement Proposals [JEP 483](https://openjdk.org/jeps/483), [JEP 514](https://openjdk.org/jeps/514), and [JEP 515](https://openjdk.org/jeps/515)) offers a pragmatic middle ground:
 
-| Approach | JVM / App Startup Speed | Standard HotSpot JVM & `-javaagent` (e.g., Dynatrace) | Build & Operational Complexity |
+| Approach | JVM / App Startup Speed | Java Agent Instrumentation | Build & Operational Complexity |
 | :--- | :--- | :--- | :--- |
 | Standard JVM (JIT) | Baseline | Full support | Low |
 | **Java 25 Project Leyden AOT Cache** | **~55–60% faster (~2.4x faster Spring Boot startup)** | **Full support** | **Low (one training run in `Dockerfile`)** |
@@ -53,25 +53,7 @@ Because Project Leyden runs on the **standard HotSpot JVM**, you keep full compa
 
 The demo application, `task-org-webapp`, lets users organize tasks into projects. PostgreSQL runs as a `StatefulSet` at `1` replica backed by a PersistentVolumeClaim (PVC)—we deliberately keep the database running so database cold starts do not distort application scaling. Only `task-org-webapp` scales between `0` and `5` replicas.
 
-```mermaid
-flowchart TD
-    Client["Browser / curl (localhost:8008)"]
-    LB["k3d LoadBalancer"]
-    subgraph k8s["Kubernetes Cluster"]
-    ING["Traefik Ingress (k3s built-in)"]
-    INT["KEDA HTTP Interceptor Proxy (keda)"]
-    SCALER["KEDA External Scaler & Operator (keda)"]
-    APP["task-org-webapp Deployment (0..5 replicas, Java 25 Leyden AOT)"]
-    DB[("PostgreSQL StatefulSet (1 replica + PVC)")]
-    end
-
-    Client --> LB --> ING --> INT
-    INT -. "pending request metric" .-> SCALER
-    SCALER -. "scale 0 <-> N via ScaledObject" .-> APP
-    INT --> APP --> DB
-    Client@{ shape: browser }
-    style k8s text-align:left
-```
+![Zero-Scale Architecture on Local k3d Cluster](images/architecture-overview.svg)
 
 ### How the KEDA HTTP Add-on Fits In
 
@@ -387,15 +369,7 @@ Because `k3d` containers share the host kernel clock, comparing the client reque
 | **3. Probe + route + first response** | `0.61 s` | `0.99 s` | Kubelet `readinessProbe` (`1 s` tick) → EndpointSlice update → interceptor forwards → first HikariCP DB connection (~90 ms) & JSON response |
 | **Total End-to-End HTTP TTFB** | **`4.04 s`** | **`3.18 s`** | *(Medians of individual stages do not sum strictly to median total)* |
 
-```mermaid
-xychart-beta
-    title "Cold-Start Latency Breakdown (Median, Seconds)"
-    x-axis ["1. KEDA + K8s Boot", "2. JVM + Spring Boot", "3. Probe + Route + DB", "Total HTTP TTFB"]
-    y-axis "Seconds" 0 --> 4.5
-    bar [1.23, 2.13, 0.61, 4.04]
-    bar [1.19, 0.94, 0.99, 3.18]
-```
-*(First bar in each group: Baseline JVM. Second bar: Project Leyden AOT Cache.)*
+![Cold-Start Latency Breakdown (Median, Seconds)](images/cold-start-breakdown.svg)
 
 ### What the Numbers Tell Us
 

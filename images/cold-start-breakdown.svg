@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 500" width="920" height="500">
+  <defs>
+    <style>
+      .font { font-family: 'Noto Sans', 'Liberation Sans', 'DejaVu Sans', sans-serif; }
+      .mono { font-family: 'Noto Mono', 'Liberation Mono', 'DejaVu Sans Mono', monospace; }
+    </style>
+  </defs>
+
+  <!-- Clean white background -->
+  <rect x="0" y="0" width="920" height="500" fill="#FFFFFF"/>
+
+  <!-- Header -->
+  <text x="32" y="38" class="font" font-size="20" font-weight="700" fill="#0F172A">Cold-Start Latency Breakdown (Median, Seconds)</text>
+  <text x="32" y="60" class="font" font-size="12.5" fill="#64748B">5 alternating iterations per mode (10 cold starts total) · k3d + Traefik + KEDA HTTP Add-on</text>
+
+  <!-- Legend (top-right / below subtitle) -->
+  <g transform="translate(32, 78)">
+    <rect x="0" y="0" width="14" height="14" rx="3" fill="#64748B"/>
+    <text x="22" y="11.5" class="font" font-size="12.5" font-weight="600" fill="#334155">Baseline JVM (JIT)</text>
+
+    <rect x="176" y="0" width="14" height="14" rx="3" fill="#0D9488"/>
+    <text x="198" y="11.5" class="font" font-size="12.5" font-weight="600" fill="#0F766E">Project Leyden AOT Cache (Java 25)</text>
+  </g>
+
+  <!-- Subtle highlight background for Total column -->
+  <rect x="684" y="116" width="204" height="280" rx="6" fill="#F8FAFC"/>
+
+  <!-- Horizontal Gridlines (y = 396 - v * 62.2222) -->
+  <g stroke="#E2E8F0" stroke-width="1">
+    <line x1="84" y1="116.0" x2="888" y2="116.0"/>
+    <line x1="84" y1="147.1" x2="888" y2="147.1"/>
+    <line x1="84" y1="178.2" x2="888" y2="178.2"/>
+    <line x1="84" y1="209.3" x2="888" y2="209.3"/>
+    <line x1="84" y1="240.4" x2="888" y2="240.4"/>
+    <line x1="84" y1="271.6" x2="888" y2="271.6"/>
+    <line x1="84" y1="302.7" x2="888" y2="302.7"/>
+    <line x1="84" y1="333.8" x2="888" y2="333.8"/>
+    <line x1="84" y1="364.9" x2="888" y2="364.9"/>
+  </g>
+
+  <!-- Vertical separator between Stages and Total -->
+  <line x1="674" y1="116" x2="674" y2="396" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="5,4"/>
+
+  <!-- Axes -->
+  <line x1="84" y1="116" x2="84" y2="396" stroke="#94A3B8" stroke-width="1.5"/>
+  <line x1="84" y1="396" x2="888" y2="396" stroke="#475569" stroke-width="1.5"/>
+
+  <!-- Y-Axis Labels -->
+  <g class="font" font-size="11.5" fill="#64748B" text-anchor="end">
+    <text x="74" y="120.0">4.5</text>
+    <text x="74" y="151.1">4.0</text>
+    <text x="74" y="182.2">3.5</text>
+    <text x="74" y="213.3">3.0</text>
+    <text x="74" y="244.4">2.5</text>
+    <text x="74" y="275.6">2.0</text>
+    <text x="74" y="306.7">1.5</text>
+    <text x="74" y="337.8">1.0</text>
+    <text x="74" y="368.9">0.5</text>
+    <text x="74" y="400.0">0.0</text>
+  </g>
+
+  <!-- Y-Axis Title -->
+  <text x="28" y="256" class="font" font-size="13" font-weight="600" fill="#475569" text-anchor="middle" transform="rotate(-90, 28, 256)">Seconds</text>
+
+  <!-- ================= GROUP 1: 1. KEDA + K8s Boot (center=182) ================= -->
+  <!-- Baseline: 1.23 s (y=319.5, h=76.5) -->
+  <path d="M 123 396 L 123 324.5 Q 123 319.5 128 319.5 L 172 319.5 Q 177 319.5 177 324.5 L 177 396 Z" fill="#64748B"/>
+  <text x="150" y="311.5" class="font" font-size="12.5" font-weight="700" fill="#475569" text-anchor="middle">1.23 s</text>
+
+  <!-- Leyden: 1.19 s (y=322.0, h=74.0) -->
+  <path d="M 187 396 L 187 327.0 Q 187 322.0 192 322.0 L 236 322.0 Q 241 322.0 241 327.0 L 241 396 Z" fill="#0D9488"/>
+  <text x="214" y="314.0" class="font" font-size="12.5" font-weight="700" fill="#0F766E" text-anchor="middle">1.19 s</text>
+
+  <text x="182" y="418" class="font" font-size="12.5" font-weight="700" fill="#1E293B" text-anchor="middle">1. KEDA + K8s Boot</text>
+  <text x="182" y="435" class="font" font-size="11" fill="#64748B" text-anchor="middle">Trigger, schedule &amp; containerd</text>
+
+  <!-- ================= GROUP 2: 2. JVM + Spring Boot (center=378) ================= -->
+  <!-- Baseline: 2.13 s (y=263.5, h=132.5) -->
+  <path d="M 319 396 L 319 268.5 Q 319 263.5 324 263.5 L 368 263.5 Q 373 263.5 373 268.5 L 373 396 Z" fill="#64748B"/>
+  <text x="346" y="255.5" class="font" font-size="12.5" font-weight="700" fill="#475569" text-anchor="middle">2.13 s</text>
+
+  <!-- Leyden: 0.94 s (y=337.5, h=58.5) -->
+  <path d="M 383 396 L 383 342.5 Q 383 337.5 388 337.5 L 432 337.5 Q 437 337.5 437 342.5 L 437 396 Z" fill="#0D9488"/>
+  <text x="410" y="329.5" class="font" font-size="12.5" font-weight="700" fill="#0F766E" text-anchor="middle">0.94 s</text>
+
+  <!-- Improvement Badge for JVM Startup -->
+  <rect x="383" y="293" width="54" height="22" rx="11" fill="#DCFCE7" stroke="#10B981" stroke-width="1.2"/>
+  <text x="410" y="308" class="font" font-size="11.5" font-weight="700" fill="#047857" text-anchor="middle">-56%</text>
+
+  <text x="378" y="418" class="font" font-size="12.5" font-weight="700" fill="#1E293B" text-anchor="middle">2. JVM + Spring Boot</text>
+  <text x="378" y="435" class="font" font-size="11" fill="#64748B" text-anchor="middle">Process start to Tomcat ready</text>
+
+  <!-- ================= GROUP 3: 3. Probe + Route + DB (center=574) ================= -->
+  <!-- Baseline: 0.61 s (y=358.0, h=38.0) -->
+  <path d="M 515 396 L 515 363.0 Q 515 358.0 520 358.0 L 564 358.0 Q 569 358.0 569 363.0 L 569 396 Z" fill="#64748B"/>
+  <text x="542" y="350.0" class="font" font-size="12.5" font-weight="700" fill="#475569" text-anchor="middle">0.61 s</text>
+
+  <!-- Leyden: 0.99 s (y=334.4, h=61.6) -->
+  <path d="M 579 396 L 579 339.4 Q 579 334.4 584 334.4 L 628 334.4 Q 633 334.4 633 339.4 L 633 396 Z" fill="#0D9488"/>
+  <text x="606" y="326.4" class="font" font-size="12.5" font-weight="700" fill="#0F766E" text-anchor="middle">0.99 s</text>
+
+  <text x="574" y="418" class="font" font-size="12.5" font-weight="700" fill="#1E293B" text-anchor="middle">3. Probe + Route + DB</text>
+  <text x="574" y="435" class="font" font-size="11" fill="#64748B" text-anchor="middle">1s probe tick, forward &amp; first SQL</text>
+
+  <!-- ================= GROUP 4: Total HTTP TTFB (center=786) ================= -->
+  <!-- Baseline: 4.04 s (y=144.6, h=251.4) -->
+  <path d="M 727 396 L 727 149.6 Q 727 144.6 732 144.6 L 776 144.6 Q 781 144.6 781 149.6 L 781 396 Z" fill="#475569"/>
+  <text x="754" y="136.6" class="font" font-size="13" font-weight="700" fill="#334155" text-anchor="middle">4.04 s</text>
+
+  <!-- Leyden: 3.18 s (y=198.1, h=197.9) -->
+  <path d="M 791 396 L 791 203.1 Q 791 198.1 796 198.1 L 840 198.1 Q 845 198.1 845 203.1 L 845 396 Z" fill="#0F766E"/>
+  <text x="818" y="190.1" class="font" font-size="13" font-weight="700" fill="#0F766E" text-anchor="middle">3.18 s</text>
+
+  <!-- Improvement Badge for Total TTFB -->
+  <rect x="791" y="153" width="54" height="22" rx="11" fill="#DCFCE7" stroke="#10B981" stroke-width="1.2"/>
+  <text x="818" y="168" class="font" font-size="11.5" font-weight="700" fill="#047857" text-anchor="middle">-21%</text>
+
+  <text x="786" y="418" class="font" font-size="13" font-weight="700" fill="#0F172A" text-anchor="middle">Total HTTP TTFB</text>
+  <text x="786" y="435" class="font" font-size="11" fill="#475569" text-anchor="middle">End-to-end 0 → 1 wake-up</text>
+
+  <!-- Footnote -->
+  <text x="32" y="478" class="font" font-size="11" fill="#64748B">Note: Medians of individual stages do not sum strictly to the median Total HTTP TTFB (~70% of Leyden cold start is K8s + KEDA overhead).</text>
+</svg>
